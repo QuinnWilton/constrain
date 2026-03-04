@@ -94,6 +94,35 @@ defmodule Constrain.Examples.SatisfiabilityTest do
     end
   end
 
+  describe "binary pattern satisfiability" do
+    test "<<x::8>> with x > 300 is unsatisfiable (interval contradiction)" do
+      preds = Constrain.Pattern.from_pattern(quote(do: <<x::8>>), :data)
+      extra = [{:gt, {:var, :x}, {:lit, 300}}]
+      assert Constrain.satisfiable?(preds ++ extra) == :no
+    end
+
+    test "<<x::8>> with is_type(:atom, x) is unsatisfiable (type contradiction)" do
+      preds = Constrain.Pattern.from_pattern(quote(do: <<x::8>>), :data)
+      extra = [{:is_type, :atom, {:var, :x}}]
+      assert Constrain.satisfiable?(preds ++ extra) == :no
+    end
+
+    test "<<x::8>> alone is satisfiable" do
+      preds = Constrain.Pattern.from_pattern(quote(do: <<x::8>>), :data)
+      assert Constrain.satisfiable?(preds) == :yes
+    end
+
+    test "<<header::binary-size(4), rest::binary>> is satisfiable" do
+      preds =
+        Constrain.Pattern.from_pattern(
+          quote(do: <<header::binary-size(4), rest::binary>>),
+          :data
+        )
+
+      assert Constrain.satisfiable?(preds) == :yes
+    end
+  end
+
   describe "pattern + guard satisfiability" do
     test "pattern with consistent guard" do
       pattern_preds = Constrain.Pattern.from_pattern(quote(do: {:ok, x}), :result)

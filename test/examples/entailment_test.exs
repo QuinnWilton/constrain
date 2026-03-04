@@ -135,6 +135,41 @@ defmodule Constrain.Examples.EntailmentTest do
     end
   end
 
+  describe "binary pattern entailment" do
+    test "<<x::8>> entails is_type(:integer, x)" do
+      preds = Constrain.Pattern.from_pattern(quote(do: <<x::8>>), :data)
+
+      assert Constrain.entails?(preds, {:is_type, :integer, {:var, :x}}) == :yes
+    end
+
+    test "<<x::8>> entails x >= 0" do
+      preds = Constrain.Pattern.from_pattern(quote(do: <<x::8>>), :data)
+
+      assert Constrain.entails?(preds, {:gte, {:var, :x}, {:lit, 0}}) == :yes
+    end
+
+    test "<<x::8>> entails x <= 255" do
+      preds = Constrain.Pattern.from_pattern(quote(do: <<x::8>>), :data)
+
+      assert Constrain.entails?(preds, {:lte, {:var, :x}, {:lit, 255}}) == :yes
+    end
+
+    test "<<x::8>> entails is_type(:number, x) via hierarchy" do
+      preds = Constrain.Pattern.from_pattern(quote(do: <<x::8>>), :data)
+
+      assert Constrain.entails?(preds, {:is_type, :number, {:var, :x}}) == :yes
+    end
+
+    test "<<a::8, b::8>> entails byte_size(data) == 2" do
+      preds = Constrain.Pattern.from_pattern(quote(do: <<a::8, b::8>>), :data)
+
+      assert Constrain.entails?(
+               preds,
+               {:eq, {:op, :byte_size, [{:var, :data}]}, {:lit, 2}}
+             ) == :yes
+    end
+  end
+
   describe "contradictory assumptions" do
     test "contradictory assumptions entail anything" do
       assert Constrain.entails?(
