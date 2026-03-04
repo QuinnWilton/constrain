@@ -15,6 +15,7 @@ defmodule Constrain.Pattern do
        {:bound, :x}]
   """
 
+  alias Constrain.BinarySegment
   alias Constrain.Predicate
 
   @doc """
@@ -140,10 +141,113 @@ defmodule Constrain.Pattern do
     pattern_preds ++ guard_preds
   end
 
-  # String concatenation pattern (binary pattern `<<prefix::binary, rest::binary>>`).
-  # Not fully supported — just assert it's a binary.
-  defp convert({:<<>>, _, _parts}, expr) do
-    [{:is_type, :binary, expr}]
+  # Binary pattern — decompose segments into type, bound, and range constraints.
+  defp convert({:<<>>, _, parts}, expr) do
+    segments = Enum.map(parts, &BinarySegment.parse/1)
+    binary_segment_predicates(expr, segments)
+  end
+
+  # Produces predicates for a binary pattern from parsed segments.
+  defp binary_segment_predicates(expr, segments) do
+    type_pred = binary_type_predicate(expr, segments)
+    structural = {:has_binary_segments, expr, segments}
+    size_preds = binary_size_predicates(expr, segments)
+    var_preds = Enum.flat_map(segments, &segment_variable_predicates/1)
+
+    [type_pred, structural | size_preds ++ var_preds]
+  end
+
+  # If all segments are byte-aligned, the value is a binary; otherwise bitstring.
+  defp binary_type_predicate(expr, segments) do
+    byte_aligned? =
+      Enum.all?(segments, fn {_binding, type, size, unit, _sign, _end} ->
+        case type do
+          t when t in [:binary, :utf8, :utf16, :utf32] -> true
+          :bitstring -> size == :default and unit == 1
+          _ -> is_integer(size) and rem(size * unit, 8) == 0
+        end
+      end)
+
+    if byte_aligned? do
+      {:is_type, :binary, expr}
+    else
+      {:is_type, :bitstring, expr}
+    end
+  end
+
+  # Compute size constraints from the segments.
+  defp binary_size_predicates(expr, segments) do
+    {static_bits, all_static?} =
+      Enum.reduce(segments, {0, true}, fn {_binding, _type, size, unit, _sign, _end},
+                                          {total, static?} ->
+        case size do
+          :default -> {total, false}
+          {:dynamic, _} -> {total, false}
+          n when is_integer(n) -> {total + n * unit, static?}
+        end
+      end)
+
+    cond do
+      # All segments have known sizes — exact byte_size constraint.
+      all_static? and rem(static_bits, 8) == 0 ->
+        [{:eq, {:op, :byte_size, [expr]}, {:lit, div(static_bits, 8)}}]
+
+      # Some segments are dynamic but we have a static lower bound.
+      static_bits > 0 and rem(static_bits, 8) == 0 ->
+        [{:gte, {:op, :byte_size, [expr]}, {:lit, div(static_bits, 8)}}]
+
+      true ->
+        []
+    end
+  end
+
+  # Produces predicates for a single segment's bound variable.
+  defp segment_variable_predicates({nil, _type, _size, _unit, _sign, _end}), do: []
+
+  defp segment_variable_predicates({name, type, size, unit, signedness, _endianness}) do
+    bound = [{:bound, name}]
+    type_preds = segment_type_predicates(name, type)
+    range_preds = segment_range_predicates(name, type, size, unit, signedness)
+    bound ++ type_preds ++ range_preds
+  end
+
+  # Type predicates for the variable bound by a segment.
+  defp segment_type_predicates(name, type) when type in [:integer, :float] do
+    [{:is_type, type, {:var, name}}]
+  end
+
+  defp segment_type_predicates(name, type) when type in [:binary, :bitstring] do
+    [{:is_type, type, {:var, name}}]
+  end
+
+  defp segment_type_predicates(name, type) when type in [:utf8, :utf16, :utf32] do
+    [{:is_type, :integer, {:var, name}}]
+  end
+
+  # Range predicates for integer segments based on bit width and signedness.
+  defp segment_range_predicates(name, :integer, size, unit, signedness) when is_integer(size) do
+    bits = size * unit
+    integer_bounds(name, bits, signedness)
+  end
+
+  defp segment_range_predicates(name, type, _size, _unit, _signedness)
+       when type in [:utf8, :utf16, :utf32] do
+    # Unicode codepoints are non-negative integers up to U+10FFFF.
+    [{:gte, {:var, name}, {:lit, 0}}, {:lte, {:var, name}, {:lit, 0x10FFFF}}]
+  end
+
+  defp segment_range_predicates(_name, _type, _size, _unit, _signedness), do: []
+
+  # Computes the min/max bounds for an integer of a given bit width.
+  defp integer_bounds(name, bits, :unsigned) do
+    max = Bitwise.bsl(1, bits) - 1
+    [{:gte, {:var, name}, {:lit, 0}}, {:lte, {:var, name}, {:lit, max}}]
+  end
+
+  defp integer_bounds(name, bits, :signed) do
+    max = Bitwise.bsl(1, bits - 1) - 1
+    min = -Bitwise.bsl(1, bits - 1)
+    [{:gte, {:var, name}, {:lit, min}}, {:lte, {:var, name}, {:lit, max}}]
   end
 
   # Builds an expression for the i-th element of a list using nested hd/tl.

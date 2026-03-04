@@ -115,4 +115,76 @@ defmodule Constrain.PatternTest do
       assert preds == [{:eq, {:op, :elem, [{:var, :t}, {:lit, 0}]}, {:lit, 42}}]
     end
   end
+
+  describe "binary patterns" do
+    test "empty binary <<>>" do
+      ast = quote do: <<>>
+      preds = Pattern.from_pattern(ast, :input)
+      assert {:is_type, :binary, {:var, :input}} in preds
+      assert {:eq, {:op, :byte_size, [{:var, :input}]}, {:lit, 0}} in preds
+    end
+
+    test "<<a::8, b::8>> — two 8-bit integers" do
+      ast = quote do: <<a::8, b::8>>
+      preds = Pattern.from_pattern(ast, :input)
+
+      assert {:is_type, :binary, {:var, :input}} in preds
+      assert {:eq, {:op, :byte_size, [{:var, :input}]}, {:lit, 2}} in preds
+      assert {:bound, :a} in preds
+      assert {:bound, :b} in preds
+      assert {:is_type, :integer, {:var, :a}} in preds
+      assert {:is_type, :integer, {:var, :b}} in preds
+      assert {:gte, {:var, :a}, {:lit, 0}} in preds
+      assert {:lte, {:var, :a}, {:lit, 255}} in preds
+      assert {:gte, {:var, :b}, {:lit, 0}} in preds
+      assert {:lte, {:var, :b}, {:lit, 255}} in preds
+    end
+
+    test "<<header::binary-size(4), rest::binary>> — two binary segments" do
+      ast = quote do: <<header::binary-size(4), rest::binary>>
+      preds = Pattern.from_pattern(ast, :input)
+
+      assert {:is_type, :binary, {:var, :input}} in preds
+      assert {:bound, :header} in preds
+      assert {:bound, :rest} in preds
+      assert {:is_type, :binary, {:var, :header}} in preds
+      assert {:is_type, :binary, {:var, :rest}} in preds
+      # 4 bytes static from header, rest is dynamic — at least 4 bytes.
+      assert {:gte, {:op, :byte_size, [{:var, :input}]}, {:lit, 4}} in preds
+    end
+
+    test "<<x::signed-8>> — signed bounds" do
+      ast = quote do: <<x::signed-8>>
+      preds = Pattern.from_pattern(ast, :input)
+
+      assert {:bound, :x} in preds
+      assert {:is_type, :integer, {:var, :x}} in preds
+      assert {:gte, {:var, :x}, {:lit, -128}} in preds
+      assert {:lte, {:var, :x}, {:lit, 127}} in preds
+    end
+
+    test "<<c::utf8>> — unicode codepoint bounds" do
+      ast = quote do: <<c::utf8>>
+      preds = Pattern.from_pattern(ast, :input)
+
+      assert {:bound, :c} in preds
+      assert {:is_type, :integer, {:var, :c}} in preds
+      assert {:gte, {:var, :c}, {:lit, 0}} in preds
+      assert {:lte, {:var, :c}, {:lit, 0x10FFFF}} in preds
+    end
+
+    test "has_binary_segments structural predicate is emitted" do
+      ast = quote do: <<x::8>>
+      preds = Pattern.from_pattern(ast, :input)
+
+      segments =
+        Enum.find_value(preds, fn
+          {:has_binary_segments, {:var, :input}, segs} -> segs
+          _ -> nil
+        end)
+
+      assert segments != nil
+      assert [{:x, :integer, 8, 1, :unsigned, :big}] = segments
+    end
+  end
 end
