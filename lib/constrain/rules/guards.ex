@@ -18,7 +18,8 @@ defmodule Constrain.Rules.Guards do
     type_hierarchy_rules() ++
       mutual_exclusion_rules() ++
       comparison_rules() ++
-      equality_rules()
+      equality_rules() ++
+      binary_rules()
   end
 
   @doc """
@@ -202,6 +203,39 @@ defmodule Constrain.Rules.Guards do
         name: :eq_neq_contradiction,
         premises: [{:eq, {:var, :x}, {:var, :y}}, {:neq, {:var, :x}, {:var, :y}}],
         conclusion: false
+      }
+    ]
+  end
+
+  @doc """
+  Returns rules encoding binary/bitstring size semantics.
+  """
+  @spec binary_rules() :: [Rule.t()]
+  def binary_rules do
+    [
+      # byte_size(x) >= 0 when is_binary(x).
+      %Rule{
+        name: :binary_byte_size_non_negative,
+        premises: [{:is_type, :binary, {:var, :x}}],
+        conclusion: {:gte, {:op, :byte_size, [{:var, :x}]}, {:lit, 0}}
+      },
+      # bit_size(x) >= 0 when is_bitstring(x).
+      %Rule{
+        name: :bitstring_bit_size_non_negative,
+        premises: [{:is_type, :bitstring, {:var, :x}}],
+        conclusion: {:gte, {:op, :bit_size, [{:var, :x}]}, {:lit, 0}}
+      },
+      # byte_size(x) is an integer when is_binary(x).
+      %Rule{
+        name: :byte_size_is_integer,
+        premises: [{:is_type, :binary, {:var, :x}}],
+        conclusion: {:is_type, :integer, {:op, :byte_size, [{:var, :x}]}}
+      },
+      # bit_size(x) is an integer when is_bitstring(x).
+      %Rule{
+        name: :bit_size_is_integer,
+        premises: [{:is_type, :bitstring, {:var, :x}}],
+        conclusion: {:is_type, :integer, {:op, :bit_size, [{:var, :x}]}}
       }
     ]
   end
