@@ -98,6 +98,13 @@ defmodule Constrain.Predicate do
           | :reference
           | :function
 
+  @type segment_type :: :integer | :float | :binary | :bitstring | :utf8 | :utf16 | :utf32
+  @type segment_size :: pos_integer() | {:dynamic, atom()} | :default
+
+  @type segment_spec ::
+          {atom() | nil, segment_type(), segment_size(), pos_integer(), :unsigned | :signed,
+           :big | :little | :native}
+
   @type shape ::
           {:tuple, non_neg_integer()}
           | {:map, [atom()]}
@@ -118,6 +125,7 @@ defmodule Constrain.Predicate do
           | {:bound, atom()}
           | {:has_shape, expr(), shape()}
           | {:in, expr(), [literal()]}
+          | {:has_binary_segments, expr(), [segment_spec()]}
           | true
           | false
 
@@ -136,6 +144,20 @@ defmodule Constrain.Predicate do
   def free_vars({:is_type, _tag, expr}), do: expr_vars(expr)
   def free_vars({:has_shape, expr, _shape}), do: expr_vars(expr)
   def free_vars({:in, expr, _values}), do: expr_vars(expr)
+
+  def free_vars({:has_binary_segments, expr, segments}) do
+    segment_vars =
+      Enum.reduce(segments, MapSet.new(), fn {binding, _type, size, _unit, _sign, _end}, acc ->
+        acc = if is_atom(binding) and binding != nil, do: MapSet.put(acc, binding), else: acc
+
+        case size do
+          {:dynamic, var} -> MapSet.put(acc, var)
+          _ -> acc
+        end
+      end)
+
+    MapSet.union(expr_vars(expr), segment_vars)
+  end
 
   def free_vars({op, lhs, rhs}) when op in @comparison_ops do
     MapSet.union(expr_vars(lhs), expr_vars(rhs))
@@ -187,6 +209,10 @@ defmodule Constrain.Predicate do
   def subst({:is_type, tag, expr}, env), do: {:is_type, tag, subst_expr(expr, env)}
   def subst({:has_shape, expr, shape}, env), do: {:has_shape, subst_expr(expr, env), shape}
   def subst({:in, expr, values}, env), do: {:in, subst_expr(expr, env), values}
+
+  def subst({:has_binary_segments, expr, segs}, env) do
+    {:has_binary_segments, subst_expr(expr, env), segs}
+  end
 
   def subst({op, lhs, rhs}, env) when op in @comparison_ops do
     {op, subst_expr(lhs, env), subst_expr(rhs, env)}
