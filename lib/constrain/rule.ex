@@ -97,6 +97,19 @@ defmodule Constrain.Rule do
     end
   end
 
+  # Binary segment matching — structural match on segments list.
+  def match_premise(
+        {:has_binary_segments, p_expr, p_segs},
+        {:has_binary_segments, f_expr, f_segs},
+        bindings
+      ) do
+    if p_segs == f_segs do
+      match_expr(p_expr, f_expr, bindings)
+    else
+      :no_match
+    end
+  end
+
   # Truth values.
   def match_premise(true, true, bindings), do: {:ok, bindings}
   def match_premise(false, false, bindings), do: {:ok, bindings}
@@ -156,6 +169,10 @@ defmodule Constrain.Rule do
 
   def instantiate({:in, expr, values}, bindings) do
     {:in, instantiate_expr(expr, bindings), values}
+  end
+
+  def instantiate({:has_binary_segments, expr, segs}, bindings) do
+    {:has_binary_segments, instantiate_expr(expr, bindings), segs}
   end
 
   def instantiate({op, lhs, rhs}, bindings)
