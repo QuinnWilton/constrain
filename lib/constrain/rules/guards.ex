@@ -158,6 +158,28 @@ defmodule Constrain.Rules.Guards do
         name: :lte_lt_transitive,
         premises: [{:lte, {:var, :x}, {:var, :y}}, {:lt, {:var, :y}, {:var, :z}}],
         conclusion: {:lt, {:var, :x}, {:var, :z}}
+      },
+      # Converse: x > y ↔ y < x
+      %Rule{
+        name: :gt_converse,
+        premises: [{:gt, {:var, :x}, {:var, :y}}],
+        conclusion: {:lt, {:var, :y}, {:var, :x}}
+      },
+      %Rule{
+        name: :lt_converse,
+        premises: [{:lt, {:var, :x}, {:var, :y}}],
+        conclusion: {:gt, {:var, :y}, {:var, :x}}
+      },
+      # Converse: x >= y ↔ y <= x
+      %Rule{
+        name: :gte_converse,
+        premises: [{:gte, {:var, :x}, {:var, :y}}],
+        conclusion: {:lte, {:var, :y}, {:var, :x}}
+      },
+      %Rule{
+        name: :lte_converse,
+        premises: [{:lte, {:var, :x}, {:var, :y}}],
+        conclusion: {:gte, {:var, :y}, {:var, :x}}
       }
     ]
   end
